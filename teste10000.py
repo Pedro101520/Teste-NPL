@@ -1,18 +1,40 @@
-import requests
+import pandas as pd
+from textblob import TextBlob
+from textblob.sentiments import PatternAnalyzer
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
-def baixar_arquivo(nome_arquivo):
-    url = f"https://huggingface.co/citizenlab/twitter-xlm-roberta-base-sentiment-finetunned/resolve/main/{nome_arquivo}"
-    response = requests.get(url, stream=True)
-    
-    if response.status_code == 200:
-        with open(nome_arquivo, "wb") as file:
-            for chunk in response.iter_content(chunk_size=8192):
-                file.write(chunk)
-        print(f"{nome_arquivo} baixado com sucesso!")
+# Função para calcular o sentimento combinado
+def calcular_sentimento(texto):
+    # TextBlob configurado para português
+    blob = TextBlob(texto, analyzer=PatternAnalyzer())
+    sentimento_textblob = blob.sentiment[0]  # Pega o score de polaridade (-1 a 1)
+
+    # VADER
+    analisador_vader = SentimentIntensityAnalyzer()
+    sentimento_vader = analisador_vader.polarity_scores(texto)['compound']  # Também retorna entre -1 e 1
+
+    # Debug: Mostrar valores individuais
+    print(f"\nTexto: {texto}")
+    print(f"TextBlob: {sentimento_textblob:.3f}, VADER: {sentimento_vader:.3f}")
+
+    # Ajustar pesos para melhorar a precisão
+    sentimento_combinado = (0.3 * sentimento_textblob) + (0.7 * sentimento_vader)
+
+    # Definir classificação
+    if sentimento_combinado > 0.1:  # Usei 0.1 como margem para evitar neutros errados
+        return "Positivo"
+    elif sentimento_combinado < -0.1:
+        return "Negativo"
     else:
-        print(f"Erro ao baixar {nome_arquivo}: {response.status_code}")
+        return "Neutro"
 
-arquivos = ["config.json", "pytorch_model.bin", "tokenizer.json", "tokenizer_config.json"]
+# Carregar o arquivo CSV
+df = pd.read_csv('arquivo_exemplo.csv')
 
-for arquivo in arquivos:
-    baixar_arquivo(arquivo)
+# Aplicar a função a cada comentário
+df['sentimento'] = df['comentario'].apply(calcular_sentimento)
+
+# Salvar o DataFrame atualizado em um novo arquivo CSV
+df.to_csv('comentarios_classificados.csv', index=False)
+
+print("\nClassificação concluída e salva em 'comentarios_classificados.csv'.")
