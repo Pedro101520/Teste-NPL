@@ -1,29 +1,33 @@
-import pandas as pd
-from deep_translator import GoogleTranslator
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
+import torch
 
-# Configuração
-arquivo_entrada = "comentarios.xlsx"  # Substitua pelo nome do seu arquivo
-coluna_texto = "comentario"  # Nome da coluna a ser traduzida
-idioma_origem = "pt"
-idioma_destino = "en"
-arquivo_saida = "comentarios_traduzidos.xlsx"
+# Carregar modelo e tokenizador
+modelo = "neuralmind/bert-base-portuguese-cased"
+tokenizer = AutoTokenizer.from_pretrained(modelo)
+modelo = AutoModelForSequenceClassification.from_pretrained(modelo, num_labels=3)  # Positivo, Neutro, Negativo
 
-# Carregar o arquivo
-if arquivo_entrada.endswith(".csv"):
-    df = pd.read_csv(arquivo_entrada)
-elif arquivo_entrada.endswith(".xlsx"):
-    df = pd.read_excel(arquivo_entrada)
-else:
-    raise ValueError("Formato de arquivo não suportado. Use CSV ou Excel.")
+def analisar_sentimento(texto):
+    """Classifica um texto como positivo, negativo ou neutro usando BERTimbau."""
+    tokens = tokenizer(texto, return_tensors="pt", padding=True, truncation=True, max_length=512)
+    
+    # Fazer previsão
+    with torch.no_grad():
+        output = modelo(**tokens)
+    
+    # Pegando o resultado
+    scores = torch.nn.functional.softmax(output.logits, dim=1)
+    labels = ["Negativo", "Neutro", "Positivo"]
+    
+    # Retornar o sentimento com maior probabilidade
+    sentimento = labels[torch.argmax(scores).item()]
+    return sentimento
 
-# Verificar se a coluna existe
-if coluna_texto not in df.columns:
-    raise ValueError(f"A coluna '{coluna_texto}' não foi encontrada no arquivo.")
+# Teste
+comentarios = [
+    "O atendimento foi excelente! Adorei a experiência.",
+    "O produto é horrível, nunca mais compro.",
+    "Foi um serviço normal, nada demais."
+]
 
-# Traduzir os comentários
-tradutor = GoogleTranslator(source=idioma_origem, target=idioma_destino)
-df["traducao"] = df[coluna_texto].astype(str).apply(lambda x: tradutor.translate(x) if x.strip() else "")
-
-# Salvar o novo arquivo
-df.to_excel(arquivo_saida, index=False)
-print(f"Tradução concluída! Arquivo salvo como {arquivo_saida}")
+for comentario in comentarios:
+    print(f"Comentário: {comentario} -> Sentimento: {analisar_sentimento(comentario)}")
