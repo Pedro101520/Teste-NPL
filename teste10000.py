@@ -1,99 +1,76 @@
-import pandas as pd
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.model_selection import GridSearchCV, train_test_split
 from sklearn.linear_model import LogisticRegression
-import joblib
-from nltk import tokenize
-import re
+from sklearn.feature_extraction.text import TfidfVectorizer
+import pickle
 
-# Função para limpar o texto
-def limpar_texto(texto):
-    texto = re.sub(r"http\S+|www\S+|https\S+", '', texto)
-    texto = re.sub(r"@\w+", '', texto)
-    texto = re.sub(r"[^\w\s]", '', texto, flags=re.UNICODE)
-    texto = re.sub(r"\d+", '', texto)
-    texto = texto.strip()
-    return texto
+# Supondo que você já tenha o seu DataFrame 'df' com os dados
+# df['tratamento_5'] são os comentários e df['sentimento'] são as classes (positivo, negativo, neutro)
 
-# Carregando os dados
-df = pd.read_csv('https://raw.githubusercontent.com/alura-cursos/nlp_analise_sentimento/refs/heads/main/Dados/dataset_avaliacoes.csv')
-
-# Aplicando a limpeza do texto
-df['tratamento_0'] = df['avaliacao'].apply(limpar_texto)
-
-# Definindo stopwords
-import nltk
-nltk.download("stopwords")
-palavras_irrelevantes = nltk.corpus.stopwords.words('portuguese')
-
-# Removendo palavras irrelevantes
-token_espaco = tokenize.WhitespaceTokenizer()
-frase_processada = []
-for opiniao in df['tratamento_0']:
-    palavras_texto = token_espaco.tokenize(opiniao)
-    nova_frase = [palavra for palavra in palavras_texto if palavra not in palavras_irrelevantes]
-    frase_processada.append(' '.join(nova_frase))
-df['tratamento_1'] = frase_processada
-
-# Remove pontuação
-token_pontuacao = tokenize.WordPunctTokenizer()
-frase_processada = []
-for opiniao in df['tratamento_1']:
-    palavras_texto = token_pontuacao.tokenize(opiniao)
-    nova_frase = [palavra for palavra in palavras_texto if palavra.isalpha() and palavra not in palavras_irrelevantes]
-    frase_processada.append(' '.join(nova_frase))
-df['tratamento_2'] = frase_processada
-
-# Remove acentuação
-import unidecode
-sem_acentos = [unidecode.unidecode(texto) for texto in df['tratamento_2']]
-df['tratamento_3'] = sem_acentos
-
-# Remover mais palavras irrelevantes
-frase_processada = []
-for opiniao in df['tratamento_3']:
-    palavras_texto = token_pontuacao.tokenize(opiniao)
-    nova_frase = [palavra for palavra in palavras_texto if palavra not in palavras_irrelevantes]
-    frase_processada.append(' '.join(nova_frase))
-df['tratamento_4'] = frase_processada
-
-# Convertendo para minúsculas e removendo palavras irrelevantes
-frase_processada = []
-for opiniao in df['tratamento_4']:
-    opiniao = opiniao.lower()
-    palavras_texto = token_pontuacao.tokenize(opiniao)
-    nova_frase = [palavra for palavra in palavras_texto if palavra not in palavras_irrelevantes]
-    frase_processada.append(' '.join(nova_frase))
-df['tratamento_5'] = frase_processada
-
-# Ajuste dos hiperparâmetros usando GridSearchCV
-# TfidfVectorizer com ngram_range de 1 a 2 (unigrams e bigrams)
-tfidf_1000 = TfidfVectorizer(lowercase=False, max_features=1000, ngram_range=(1, 2))
-
-# Vetorizando os textos
-vetor_tfidf = tfidf_1000.fit_transform(df['tratamento_5'])
-
-# Definindo os hiperparâmetros para o modelo de regressão logística
-param_grid = {
-    'C': [0.01, 0.1, 1, 10, 100],  # Valores diferentes para o parâmetro de regularização
-    'penalty': ['l2']  # Apenas L2 neste caso
+# Parâmetros de ajuste para o TfidfVectorizer
+parametros_tfidf = {
+    'max_features': [1000, 5000, 10000],  # Número de features
+    'ngram_range': [(1, 1), (1, 2), (1, 3)],  # Unigrams, Bigrams, Trigrams
+    'min_df': [0.01, 0.05],  # Frequência mínima do termo
+    'max_df': [0.85, 0.95],  # Frequência máxima do termo
+    'sublinear_tf': [True, False]  # Aplicar transformação logarítmica
 }
 
-# Usando GridSearchCV com 5 folds de validação cruzada
-grid_search = GridSearchCV(LogisticRegression(), param_grid, cv=5, scoring='accuracy')
+# Parâmetros de ajuste para a Regressão Logística
+parametros_regressao = {
+    'C': [0.001, 0.01, 0.1, 1, 10],  # Regularização
+    'solver': ['liblinear', 'saga'],  # Solvers para otimização
+    'penalty': ['l1', 'l2'],  # Penalidade (regularização)
+    'max_iter': [100, 200, 500],  # Número máximo de iterações
+    'multi_class': ['ovr', 'multinomial']  # Estratégia multi-classe
+}
 
-# Ajustando o modelo
-grid_search.fit(vetor_tfidf, df['sentimento'])
+# Inicializando o TfidfVectorizer
+tfidf = TfidfVectorizer()
 
-# Mostrando os melhores parâmetros encontrados
-print(f'Melhor acurácia: {grid_search.best_score_ * 100:.2f}%')
-print(f'Melhores hiperparâmetros: {grid_search.best_params_}')
+# Inicializando o modelo de Regressão Logística
+regressao_logistica = LogisticRegression()
 
-# Treinando o modelo final com os melhores parâmetros
-melhor_modelo = grid_search.best_estimator_
+# Criando o GridSearchCV para ajustar os parâmetros
+grid_search = GridSearchCV(
+    estimator=regressao_logistica,
+    param_grid={
+        'tfidfvectorizer__max_features': parametros_tfidf['max_features'],
+        'tfidfvectorizer__ngram_range': parametros_tfidf['ngram_range'],
+        'tfidfvectorizer__min_df': parametros_tfidf['min_df'],
+        'tfidfvectorizer__max_df': parametros_tfidf['max_df'],
+        'tfidfvectorizer__sublinear_tf': parametros_tfidf['sublinear_tf'],
+        'logisticregression__C': parametros_regressao['C'],
+        'logisticregression__solver': parametros_regressao['solver'],
+        'logisticregression__penalty': parametros_regressao['penalty'],
+        'logisticregression__max_iter': parametros_regressao['max_iter'],
+        'logisticregression__multi_class': parametros_regressao['multi_class']
+    },
+    cv=5,  # número de folds para validação cruzada
+    n_jobs=-1,  # usar todos os núcleos disponíveis para computação paralela
+    verbose=1  # para ver mais detalhes do processo
+)
 
-# Salvando o modelo ajustado
-joblib.dump(melhor_modelo, 'modelo_regressao_logistica.pkl')
-joblib.dump(tfidf_1000, 'tfidf_vectorizer.pkl')
+# Separando dados de treino e teste
+X_treino, X_teste, y_treino, y_teste = train_test_split(df['tratamento_5'], df['sentimento'], random_state=42)
 
-print("Terminou a execução")
+# Ajustando o modelo com o GridSearchCV
+grid_search.fit(X_treino, y_treino)
+
+# Exibindo os melhores parâmetros encontrados e a melhor acurácia
+print("Melhores parâmetros encontrados: ", grid_search.best_params_)
+print("Melhor Acurácia: ", grid_search.best_score_)
+
+# Salvando o melhor modelo e o TfidfVectorizer com os melhores parâmetros
+melhor_tfidf = grid_search.best_estimator_.named_steps['tfidfvectorizer']
+melhor_modelo = grid_search.best_estimator_.named_steps['logisticregression']
+
+# Salvando os modelos
+with open('melhor_tfidf_vectorizer.pkl', 'wb') as f:
+    pickle.dump(melhor_tfidf, f)
+
+with open('melhor_regressao_logistica.pkl', 'wb') as f:
+    pickle.dump(melhor_modelo, f)
+
+# Avaliando o modelo no conjunto de teste
+acuracia_teste = grid_search.score(X_teste, y_teste)
+print(f'Acurácia no conjunto de teste: {acuracia_teste * 100:.2f}%')
