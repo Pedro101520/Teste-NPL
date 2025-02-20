@@ -1,88 +1,99 @@
+import pandas as pd
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.linear_model import LogisticRegression
+import joblib
+from nltk import tokenize
+import re
+
+# Função para limpar o texto
+def limpar_texto(texto):
+    texto = re.sub(r"http\S+|www\S+|https\S+", '', texto)
+    texto = re.sub(r"@\w+", '', texto)
+    texto = re.sub(r"[^\w\s]", '', texto, flags=re.UNICODE)
+    texto = re.sub(r"\d+", '', texto)
+    texto = texto.strip()
+    return texto
+
+# Carregando os dados
+df = pd.read_csv('https://raw.githubusercontent.com/alura-cursos/nlp_analise_sentimento/refs/heads/main/Dados/dataset_avaliacoes.csv')
+
+# Aplicando a limpeza do texto
+df['tratamento_0'] = df['avaliacao'].apply(limpar_texto)
+
+# Definindo stopwords
 import nltk
-from textblob import TextBlob
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+nltk.download("stopwords")
+palavras_irrelevantes = nltk.corpus.stopwords.words('portuguese')
 
-# Baixar recursos do NLTK (para VADER)
-nltk.download('vader_lexicon')
+# Removendo palavras irrelevantes
+token_espaco = tokenize.WhitespaceTokenizer()
+frase_processada = []
+for opiniao in df['tratamento_0']:
+    palavras_texto = token_espaco.tokenize(opiniao)
+    nova_frase = [palavra for palavra in palavras_texto if palavra not in palavras_irrelevantes]
+    frase_processada.append(' '.join(nova_frase))
+df['tratamento_1'] = frase_processada
 
-# Função para análise com VADER
-def vader_sentiment(text):
-    analyzer = SentimentIntensityAnalyzer()
-    score = analyzer.polarity_scores(text)
-    # Retorna a classificação com base no score de "compound"
-    if score['compound'] >= 0.05:
-        return 'positivo'
-    elif score['compound'] <= -0.05:
-        return 'negativo'
-    else:
-        return 'neutro'
+# Remove pontuação
+token_pontuacao = tokenize.WordPunctTokenizer()
+frase_processada = []
+for opiniao in df['tratamento_1']:
+    palavras_texto = token_pontuacao.tokenize(opiniao)
+    nova_frase = [palavra for palavra in palavras_texto if palavra.isalpha() and palavra not in palavras_irrelevantes]
+    frase_processada.append(' '.join(nova_frase))
+df['tratamento_2'] = frase_processada
 
-# Função para análise com TextBlob-Pt
-def textblob_sentiment(text):
-    blob = TextBlob(text)
-    # A polaridade varia de -1 (negativo) a 1 (positivo)
-    polarity = blob.sentiment.polarity
-    if polarity > 0:
-        return 'positivo'
-    elif polarity < 0:
-        return 'negativo'
-    else:
-        return 'neutro'
+# Remove acentuação
+import unidecode
+sem_acentos = [unidecode.unidecode(texto) for texto in df['tratamento_2']]
+df['tratamento_3'] = sem_acentos
 
-# Função para análise com SentiLex-PT (baseado em um dicionário simples de sentimentos)
-# Aqui você precisaria de um dicionário ou lista de palavras com sentimentos pré-definidos
-def senti_lex_sentiment(text):
-    # Exemplo de lista simples (isso precisa ser expandido para ser eficaz)
-    positive_words = ['bom', 'ótimo', 'maravilhoso', 'feliz', 'excelente']
-    negative_words = ['ruim', 'péssimo', 'triste', 'horrível', 'detestável']
-    
-    score = 0
-    words = text.lower().split()
-    
-    for word in words:
-        if word in positive_words:
-            score += 1
-        elif word in negative_words:
-            score -= 1
-    
-    if score > 0:
-        return 'positivo'
-    elif score < 0:
-        return 'negativo'
-    else:
-        return 'neutro'
+# Remover mais palavras irrelevantes
+frase_processada = []
+for opiniao in df['tratamento_3']:
+    palavras_texto = token_pontuacao.tokenize(opiniao)
+    nova_frase = [palavra for palavra in palavras_texto if palavra not in palavras_irrelevantes]
+    frase_processada.append(' '.join(nova_frase))
+df['tratamento_4'] = frase_processada
 
-# Função de votação ponderada
-def weighted_voting(text):
-    # Analisadores
-    vader_vote = vader_sentiment(text)
-    textblob_vote = textblob_sentiment(text)
-    senti_lex_vote = senti_lex_sentiment(text)
-    
-    # Pesos (aqui podem ser ajustados conforme a confiança nos métodos)
-    weights = {'positivo': 1, 'negativo': -1, 'neutro': 0}
-    
-    # Ponderação dos votos
-    weighted_votes = {
-        'positivo': weights[vader_vote] + weights[textblob_vote] + weights[senti_lex_vote],
-        'negativo': weights[vader_vote] + weights[textblob_vote] + weights[senti_lex_vote],
-        'neutro': weights[vader_vote] + weights[textblob_vote] + weights[senti_lex_vote]
-    }
-    
-    # Retorna o voto com maior ponderação
-    return max(weighted_votes, key=weighted_votes.get)
+# Convertendo para minúsculas e removendo palavras irrelevantes
+frase_processada = []
+for opiniao in df['tratamento_4']:
+    opiniao = opiniao.lower()
+    palavras_texto = token_pontuacao.tokenize(opiniao)
+    nova_frase = [palavra for palavra in palavras_texto if palavra not in palavras_irrelevantes]
+    frase_processada.append(' '.join(nova_frase))
+df['tratamento_5'] = frase_processada
 
-# Exemplos de comentários
-comments = [
-    "Este produto é maravilhoso e muito bom!",
-    "Não gostei nada desse filme, foi péssimo.",
-    "O tempo está ok hoje, nem bom nem ruim.",
-    "Adorei o evento, foi excelente!",
-    "Não foi um bom dia para mim."
-]
+# Ajuste dos hiperparâmetros usando GridSearchCV
+# TfidfVectorizer com ngram_range de 1 a 2 (unigrams e bigrams)
+tfidf_1000 = TfidfVectorizer(lowercase=False, max_features=1000, ngram_range=(1, 2))
 
-# Classificação dos comentários
-for comment in comments:
-    print(f"Comentário: {comment}")
-    print(f"Sentimento: {weighted_voting(comment)}")
-    print("-" * 30)
+# Vetorizando os textos
+vetor_tfidf = tfidf_1000.fit_transform(df['tratamento_5'])
+
+# Definindo os hiperparâmetros para o modelo de regressão logística
+param_grid = {
+    'C': [0.01, 0.1, 1, 10, 100],  # Valores diferentes para o parâmetro de regularização
+    'penalty': ['l2']  # Apenas L2 neste caso
+}
+
+# Usando GridSearchCV com 5 folds de validação cruzada
+grid_search = GridSearchCV(LogisticRegression(), param_grid, cv=5, scoring='accuracy')
+
+# Ajustando o modelo
+grid_search.fit(vetor_tfidf, df['sentimento'])
+
+# Mostrando os melhores parâmetros encontrados
+print(f'Melhor acurácia: {grid_search.best_score_ * 100:.2f}%')
+print(f'Melhores hiperparâmetros: {grid_search.best_params_}')
+
+# Treinando o modelo final com os melhores parâmetros
+melhor_modelo = grid_search.best_estimator_
+
+# Salvando o modelo ajustado
+joblib.dump(melhor_modelo, 'modelo_regressao_logistica.pkl')
+joblib.dump(tfidf_1000, 'tfidf_vectorizer.pkl')
+
+print("Terminou a execução")
